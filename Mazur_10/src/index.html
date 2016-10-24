@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Gamepad API Test</title>
+</head>
+<body>
+<p>Check the browser's JavaScript console for output.</p>
+<script>
+/* Here goes the JavaScript code we'll write */
+
+/* Completed Gamepad API object: */
+var gamepadAPI = {
+    controllers: {},
+    active: false,
+    gamepadConnected: function(event) {
+        var controller = event.gamepad;
+        var controllerID = event.gamepad.id;
+        gamepadAPI.controllers[event.gamepad.index] = controller;
+        gamepadAPI.active = true;
+        console.log("Connected Gamepad ID: "+controllerID+".");
+    },
+    gamepadDisconnected: function(event) {
+        delete gamepadAPI.controllers[event.gamepad.index];
+        if(!gamepadAPI.controllers.length) {
+            gamepadAPI.active = false;
+        }
+        console.log('Gamepad disconnected.');
+    },
+    buttonPressed: function(event, pressed) {
+        var button = event.button;
+        if(pressed) {
+            console.log("Button "+button+" was pressed.");
+            if(button == 1) { // button[1] is B or O
+                GAME.startNewGame();
+            }
+        }
+        else {
+            console.log("Button "+button+" was released.");
+        }
+    },
+    axisPressed: function(event) {
+        var axis = event.axis;
+        var value = event.value;
+        console.log("Axis: "+axis+", value: "+value+".");
+    }
+};
+
+/* Here are all the event listeners: */
+window.addEventListener("gamepadconnected", function(e) {
+    gamepadAPI.gamepadConnected(e);
+});
+window.addEventListener("gamepaddisconnected", function(e) {
+    gamepadAPI.gamepadDisconnected(e);
+});
+window.addEventListener("gamepadbuttondown", function(e) {
+    gamepadAPI.buttonPressed(e, true);
+});
+window.addEventListener("gamepadbuttonup", function(e) {
+    gamepadAPI.buttonPressed(e, false);
+});
+window.addEventListener("gamepadaxismove", function(e){
+    gamepadAPI.axisPressed(e);
+});
+
+/* Let's create a GAME object for our game */
+var GAME = {};
+
+/* Here's the function that will start our game */
+GAME.startNewGame = function() {
+    alert("New game started!");
+}
+
+</script>
+</body>
+</html>

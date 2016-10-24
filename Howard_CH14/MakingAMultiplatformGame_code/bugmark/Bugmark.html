@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+
+<html>
+<title>Bug Benchmark - Display Rendering - Jon Howard 2013</title> 
+<head>
+
+
+<script src="js/stats/FPSCounter.js"></script> 
+<script src="js/detection/CSSSupport.js"></script> 
+<script src="js/detection/BrowserDetect.js"></script> 
+<script src="js/bugtests/bugsCSS.js"></script> 
+<script src="js/bugtests/bugsCanvas.js"></script> 
+<script src="js/bugtests/bugsJS.js"></script> 
+<script src="js/bugtests/bugsJSImg.js"></script> 
+<script src="js/bugtests/bigLogoJS.js"></script> 
+<script src="js/bugtests/bigLogoJSImg.js"></script> 
+<script src="js/bugtests/bigLogoJSImgScaled.js"></script> 
+<style>
+	.container {background-color: #CCCCCC; width:640px; height:480px; margin:auto auto; position:relative;overflow-x: hidden; overflow-y: hidden; }
+	.bigLogoBG {background-image: url(images/bigLogo.png); 	background-position: 0px 0px; width:640px; height:480px; position:absolute;}
+	.title {background-color: #DDDDDD; width:640px; height:20px; margin:auto; position:relative; text-align: center}
+	img {position:absolute;}
+	.bug1 {width:40px; height:50px; position: absolute;  background-image: url(images/bug1.png);}
+	.bug2 {width:40px; height:50px; position: absolute; background-image: url(images/bug2.png);}
+</style>
+</head>
+<body>
+
+
+<script>
+	//Array of objects containing test sequence
+	var testSequence = [
+						{type:bugsJSImg, amount:25, secs:8},
+						{type:bugsJSImg, amount:50, secs:8},
+						{type:bugsJSImg, amount:100, secs:8},
+						{type:bugsJSImg, amount:200, secs:8},
+						{type:bugsCanvas, amount:25, secs:8},
+						{type:bugsCanvas, amount:50, secs:8},
+						{type:bugsCanvas, amount:100, secs:8},
+						{type:bugsCanvas, amount:200, secs:8},
+						{type:bugsJS, amount:25, secs:8},
+						{type:bugsJS, amount:50, secs:8},
+						{type:bugsJS, amount:100, secs:8},
+						{type:bugsJS, amount:200, secs:8},
+						{type:bugsCSS, amount:25, secs:8},
+						{type:bugsCSS, amount:50, secs:8},
+						{type:bugsCSS, amount:100, secs:8},
+						{type:bugsCSS, amount:200, secs:8},
+						{type:bigLogoJS, amount:5, secs:8},
+						{type:bigLogoJSImg, amount:5, secs:8},
+						{type:bigLogoJSImgScaled, amount:5, secs:8}
+						];
+						
+
+	var BUG_WIDTH=40, BUG_HEIGHT=50;
+	var SCREENWIDTH=(window.innerWidth || document.documentElement.clientWidth), SCREENHEIGHT = (window.innerHeight || document.documentElement.clientHeight);
+	var WINDOWWIDTH = 640, WINDOWHEIGHT = 480;
+	var pos=0, currentTest, timer, stats, testIsRunning=false;
+	var results = '<p>Browser: ' + BrowserDetect.browser + ' ' + BrowserDetect.version + ' on ' + BrowserDetect.OS + '</p>'; 
+	results+='RESULTS::<br/> screen width:'+SCREENWIDTH+'  height:'+SCREENHEIGHT+'<br/>window width:'+WINDOWWIDTH+'  height:'+WINDOWHEIGHT+'<br>';
+
+	var bug1 = new Image(), bug2 = new Image();
+	var intervalID, containerDiv, titleDiv;
+	
+	containerDiv = document.createElement("div");
+	containerDiv.className = "container";
+	document.body.appendChild(containerDiv);
+	
+	titleDiv = document.createElement("div");
+	titleDiv.className = "title";
+	document.body.appendChild(titleDiv);
+	
+	bug1.src = 'images/bug1.png';
+	bug2.src = 'images/bug2.png';
+	
+	//Fix Date for <IE9
+	Date.now = Date.now || function() { return new Date();}
+	
+	//Set up and initiate test
+	initNextTest();
+	
+	intervalID=setInterval(function(){update(); },1000/60);
+	
+	//Update: Main render loop
+	function update()
+		{
+			if(!testIsRunning) return;
+			if(currentTest.type.render) currentTest.type.render();
+		}
+	
+	//initNextTest: Initialse the next test then start when ready
+	function initNextTest()
+		{
+			currentTest = testSequence[pos];
+			var constructWasGood = currentTest.type.construct(currentTest.amount, WINDOWWIDTH-BUG_WIDTH, WINDOWHEIGHT-BUG_HEIGHT, containerDiv);
+			if(constructWasGood)
+				{//Test construction was good
+					titleDiv.innerHTML = "("+(pos+1)+"/"+testSequence.length+") - "+currentTest.type.testType+"  #bugs:"+currentTest.amount;
+					FPSCounter.initCounter();
+					setTimeout(startTest, 1000);
+				}
+				else
+				{//Test construction failed
+					endOfTest(false);
+				}
+		}
+	
+	//startTest: Start the initiated test
+	function startTest()
+		{
+			FPSCounter.startCounter();
+			testIsRunning=true;
+			timer = setInterval(function(){endOfTest(true);}, currentTest.secs*1000);
+		}
+		
+	//endOfTest: Test has finished to record results, clean up and init next test
+	function endOfTest(testWasRun)
+		{
+			clearInterval(timer);
+			testIsRunning=false;
+			FPSCounter.stopCounter();
+			if(testWasRun)
+				{
+					results+="type:"+currentTest.type.testType+"  num bugs:"+currentTest.amount+"  time:"+currentTest.secs+"    FPS:"+FPSCounter.getFPS()+"<br/>";
+				}
+				else
+				{
+					results+="type:"+currentTest.type.testType+" - FAILED. FEATURE NOT SUPPORTED <br/>";
+				}
+				
+			pos++;
+			destroyCurrentTest();
+			if(pos<testSequence.length)	initNextTest();
+				else displayResults();
+		}
+		
+	//displayResults: Format results and push to screen
+	function displayResults()
+		{
+			titleDiv.innerHTML = "RESULTS";
+			var resultsDiv = document.createElement('div');
+			resultsDiv.innerHTML = results;
+			resultsDiv.style.position="absolute";
+			resultsDiv.style.left="20px";
+			resultsDiv.style.top="2px";
+			containerDiv.appendChild(resultsDiv);
+			clearInterval(intervalID);
+		}
+		
+	//destroyCurrentTest: run the destroy method ont he current test.
+	function destroyCurrentTest()
+		{
+			currentTest.type.destroy();
+		}
+		
+
+</script>
+
+</body>
+</html>
+
+

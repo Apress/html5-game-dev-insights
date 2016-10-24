@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<map version="1.0" orientation="orthogonal" width="10" height="6" tilewidth="48" tileheight="48">
+ <properties>
+  <property name="myMapProp" value="98"/>
+ </properties>
+ <tileset firstgid="1" name="DtMaps" tilewidth="48" tileheight="48">
+  <image source="DtMaps.png" width="192" height="96"/>
+ </tileset>
+ <layer name="tlBackground" width="10" height="6">
+  <properties>
+   <property name="PointsValue" value="{345,543}"/>
+   <property name="myTileSize" value="200"/>
+  </properties>
+  <data encoding="base64" compression="zlib">
+   eJzjYGBg4BhBGADlsAHh
+  </data>
+ </layer>
+ <layer name="tlWayPoint" width="10" height="6">
+  <data encoding="base64" compression="zlib">
+   eJxjYGBgYGUgDsDUMQExIxpmxqIOm7nIYmxQvewE1KEDZPux6cVnBgAidABG
+  </data>
+ </layer>
+ <layer name="tlStartPoint" width="10" height="6">
+  <data encoding="base64" compression="zlib">
+   eJxjYGBgYGEYOQAABKAABQ==
+  </data>
+ </layer>
+</map>

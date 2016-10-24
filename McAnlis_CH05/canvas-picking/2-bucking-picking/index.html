@@ -1,0 +1,239 @@
+
+
+
+<canvas id="cvs" width="512" height="512"></canvas>
+
+<script>
+
+		
+//--------------
+function SpriteProto(){
+	this.filename="";
+	this.imgHandle=null;
+	this.size={w:0,h:0};
+	this.load= function(filename,w,h)
+	{
+		var targetSpriteProto = this;
+		this.size.w = w;
+		this.size.h = h;
+		var img = new Image();
+		img.onload = function(){
+
+			targetSpriteProto.imgHandle = img;
+		}
+		img.src = filename; 
+	}
+}
+
+//--------------
+function SpriteInstance(){
+	this.id=0;
+	this.zIndex=50;
+	this.pos={x:0,y:0};
+	this.size={w:0,h:0};
+	this.spriteHandle=null;
+}
+
+
+//--------------
+function BucketGrid(){
+	this.tileSize=32;
+	this.numXTiles=0;
+	this.numYTiles=0;
+	this.tileData=null;
+	
+	this.init=function()
+	{
+		this.tileData = new Array();
+		this.tileSize = 16;
+		this.numXTiles= 512/this.tileSize;
+		this.numYTiles= 512/this.tileSize;
+		
+		this.tileData.length = this.numXTiles*this.numYTiles;
+		for(var k =0; k < this.tileData.length;k++)
+			this.tileData[k] = new Array();
+	};
+	//--------------
+	this.markInstanceInAccelGrid=function(sp)
+	{
+		var gridminX = Math.floor(sp.pos.x / this.tileSize);
+		var gridmaxX = Math.floor((sp.pos.x + sp.size.w) / this.tileSize);
+		var gridminY = Math.floor(sp.pos.y / this.tileSize);
+		var gridmaxY = Math.floor((sp.pos.y + sp.size.h) / this.tileSize);
+		
+		if(gridmaxX >= this.numXTiles) gridmaxX = this.numXTiles-1;
+		if(gridmaxY >= this.numYTiles) gridmaxY = this.numYTiles-1;
+		
+		for(var y = gridminY; y <=gridmaxY; y++)
+		{
+			var idx = y*this.numXTiles;
+			for(var x = gridminX; x <=gridmaxX; x++)
+			{
+				this.tileData[idx+x].push(sp);
+			}
+		}
+	};
+	//--------------
+	this.getEntsForPoint=function(x,y)
+	{
+		var gridminX = Math.floor(x / this.tileSize);
+		var gridminY = Math.floor(y / this.tileSize);
+		var idx = gridminX + gridminY*this.numXTiles;
+		var ents = this.tileData[idx];
+		return ents;
+	};
+}
+//--------------
+function findClickedSprite(x,y,doBucketCheck)
+{
+	var pickedSprite = null;
+	//Test the grid to see what sprites intersect this 2D bucket
+	var tgtents = spriteInstances;
+	if(doBucketCheck)
+		tgtents = acclGrid.getEntsForPoint(x,y);
+
+	//loop through all sprites 
+	for(var i =0; i < tgtents.length; i++)
+	{
+		var sp = tgtents[i];
+		//pick is not intersecting with this sprite
+		if(	x < sp.pos.x || x > sp.pos.x + sp.size.w ||
+			y < sp.pos.y || y > sp.pos.y + sp.size.h)
+			continue;
+
+		var ps = sp.spriteHandle;
+		//do depth test (if applicable)
+		if(pickedSprite && sp.zIndex < pickedSprite.zIndex)
+			continue;
+		pickedSprite = sp;
+	}
+	
+	
+	
+	if(pickedSprite != null)
+	{
+		ctx.strokeStyle = '#FF00FF';
+		ctx.strokeRect(pickedSprite.pos.x, pickedSprite.pos.y, pickedSprite.size.w,pickedSprite.size.h);
+	}
+	
+	
+}
+//--------------
+var protoSprites = new Array();
+var spriteInstances = new Array();
+var acclGrid = new BucketGrid();
+//--------------
+function loadProtos()
+{
+	//technically, this should be an atlas definition!
+	var imgs=[
+		{nm:"0.png",w:66,h:42},
+		{nm:"1.png",w:66,h:52},
+		{nm:"2.png",w:66,h:46},
+		{nm:"3.png",w:70,h:65}
+		];
+	for(var i =0; i < imgs.length; i++)
+	{
+		var sp = new SpriteProto();
+		sp.load(imgs[i].nm,imgs[i].w,imgs[i].h);
+		protoSprites.push(sp);
+	}
+}
+
+//--------------
+function generateInstances()
+{
+	acclGrid.init();
+
+	var numSprites = 4096; //magic number
+	for(var i = 0; i < numSprites; i++)
+	{
+		var sp = new SpriteInstance();
+		sp.id = i;
+		sp.zIndex = i; //just to keep my sanity...
+		sp.pos.x = Math.floor(Math.random() * (500)); //random point on canvas
+		sp.pos.y = Math.floor(Math.random() * (500));
+		var idx = Math.floor(Math.random() * (protoSprites.length));
+		sp.spriteHandle = protoSprites[idx];
+		sp.size = sp.spriteHandle.size;
+		
+		spriteInstances.push(sp);
+		acclGrid.markInstanceInAccelGrid(sp);
+	}
+}
+//--------------
+function drawSprites()
+{
+	//note that zindex = i here, so this rendering is correct.
+	for(var i =0; i < spriteInstances.length;i++)
+	{
+		var sp = spriteInstances[i];
+		var ps = sp.spriteHandle;
+		ctx.drawImage(ps.imgHandle,sp.pos.x, sp.pos.y);
+	}
+}
+
+//--------------
+//--------------
+//--------------
+//--------------Initalization section
+//--------------
+//--------------
+//--------------
+//--------------
+
+//--------------
+function mouseClick(e)
+{
+	//NOTE, this is just here for testing purposes. you DO NOT need to do two seperate click steps here.
+	// it's useful to see these tests side-by-side.
+	/*
+	console.time("SimpleClick");
+	findClickedSprite(e.offsetX,e.offsetY,false);
+	console.timeEnd("SimpleClick");
+	*/
+
+	console.time("BucketGridClick");
+	findClickedSprite(e.offsetX,e.offsetY,true);
+	console.timeEnd("BucketGridClick");
+}
+//--------------
+function checkWait(conditionFunction, resultFunction)
+		{
+			var tev = setInterval(function()
+				{
+					if(conditionFunction())
+					{
+						resultFunction(); 
+						clearInterval(tev)
+					}
+				}, 1000);
+		}
+
+//--------------
+//--------------
+
+var canvas = document.getElementById('cvs');
+var ctx = canvas.getContext('2d');
+canvas.addEventListener("mouseup", mouseClick, false);
+
+//load prototype data
+loadProtos();
+
+//wait for our proto object images to be loaded!
+checkWait( 
+	function(){
+		for(var i =0; i < protoSprites.length; i++)
+			if(protoSprites[i].imgHandle == null)
+				return false;
+		return true;
+	},
+	function(){
+		//once everything is loaded, lock and load
+		generateInstances();
+		drawSprites();
+		}
+	);
+//--------------
+
+</script>

@@ -1,0 +1,176 @@
+<html>
+	<head>
+    <script src="coreGame.js"> </script>
+    <script src="TILEDmap.js"> </script>
+	<script>
+
+
+    //these functions are specific to this approach
+    function CanvasTile(){
+      this.x=0; //world x,y, width and height of this tile
+      this.y=0;
+      this.w=100;
+      this.h=100;
+      this.cvsHdl=null; //a handle to the canvas to draw into
+      this.ctx=null; //the 2d context for said canvas
+      
+      //-----------------------------
+      this.create=function(width,height)
+      {
+
+        this.x = -1;
+        this.y = -1;
+        this.w = width;
+        this.h = height;
+        //create a brand new canvas object, which is NOT attached to the dop
+        //this will make the canvas 'offscreen' in that we can render into it, use it, but it
+        //will not be visible to the end user directly
+        var can2 = document.createElement('canvas');
+        can2.width = width;
+        can2.height = height;
+        this.cvsHdl = can2;
+        this.ctx = can2.getContext('2d');
+        
+      
+      };
+      //-----------------------------
+      this.isVisible=function()
+      { 
+        var r2 = gMap.viewRect;
+        var r1 = this;
+        return intersectRect(  {top:r1.y,
+                          left:r1.x,
+                          bottom:r1.y+r1.h,
+                          right:r1.x+r1.w},
+                          {top:r2.y,
+                          left:r2.x,
+                          bottom:r2.y+r2.h,
+                          right:r2.x+r2.w});
+          
+      
+      };
+
+     };
+
+     //CLM Add these to our map just for sanity
+    gMap.canvasTileSize={"x":1024,"y":1024};
+    gMap.canvasTileArray=[];
+
+  function preDrawCache()
+  {
+      //determine the number of canvases across, and down for the given map
+      //this is done by dividing the overall pixel size of the map by the size of our canvas-tiles
+    var xCanvasCount = 1 + Math.floor(gMap.pixelSize.x / gMap.canvasTileSize.x);
+    var yCanvasCount = 1 + Math.floor(gMap.pixelSize.y / gMap.canvasTileSize.y);
+    var numSubCanv = xCanvasCount*yCanvasCount;
+    
+    //now for each 'cache tile' go through, create it, and fill it with grahpics information
+    for(var yC = 0; yC <yCanvasCount; yC ++)
+    {
+      for(var xC = 0; xC <xCanvasCount; xC ++)
+      {
+        var k = new CanvasTile();
+        k.create(gMap.canvasTileSize.x,gMap.canvasTileSize.y);
+        k.x = xC * gMap.canvasTileSize.x;
+        k.y = yC * gMap.canvasTileSize.y;
+        gMap.canvasTileArray.push(k);
+      
+        //draw this region of the map into this canvas
+        fillCanvasTile(k);
+      }
+    }
+    
+    //once we've filled the cache, we're loaded!  
+    gMap.fullyLoaded = true;
+  };
+
+
+  //------------------------------------
+  function fillCanvasTile(ctile)
+  {
+
+    var ctx = ctile.ctx;
+    //clear the tile itself
+    ctx.fillRect(0,0,ctile.w, ctile.h);
+
+    //create a mini-view-rect for this tile, which represents its bounds in world-space
+    var vRect={ top:ctile.y,
+            left:ctile.x,
+            bottom:ctile.y+ctile.h,
+            right:ctile.x+ctile.w};
+      
+      //most of this logic is the same
+      for (var layerIdx = 0; layerIdx < gMap.currMapData.layers.length; layerIdx++) 
+      {
+        if (gMap.currMapData.layers[layerIdx].type != "tilelayer") continue;
+
+        var dat = gMap.currMapData.layers[layerIdx].data;
+        //find what the tileIndexOffset is for gMap layer
+        for (var tileIDX = 0; tileIDX < dat.length; tileIDX++) {
+        var tID = dat[tileIDX];
+        if (tID == 0) continue;
+
+        var tPKT = gMap.getTilePacket(tID);
+
+        //test if gMap tile is within our world bounds
+        var worldX = Math.floor(tileIDX % gMap.numXTiles) * gMap.tileSize.x;
+        var worldY = Math.floor(tileIDX / gMap.numXTiles) * gMap.tileSize.y;
+
+        //figure out if the cache-tile rectangle intersects with the given smaller tile
+        var visible= intersectRect(  vRect,
+                      {top:worldY,left:worldX,bottom:worldY + gMap.tileSize.y,right:worldX + gMap.tileSize.x});
+        if(!visible)  
+          continue;
+          
+        // Nine arguments: the element, source (x,y) coordinates, source width and 
+        // height (for cropping), destination (x,y) coordinates, and destination width 
+        // and height (resize).    
+        
+        ctx.drawImage(tPKT.img,
+                tPKT.px, tPKT.py, 
+                gMap.tileSize.x, gMap.tileSize.y, 
+                worldX - vRect.left, 
+                worldY - vRect.top, 
+                gMap.tileSize.x, gMap.tileSize.y);
+        
+        
+
+        }
+      }
+    }
+
+    function onMapDataLoaded()
+    {
+        preDrawCache();
+        
+    }
+    
+    function onDrawMap(ctx)
+    {
+      //aabb test to see if our view-rect intersects with this canvas.
+      for(var q =0; q < gMap.canvasTileArray.length; q++)
+      {
+        var r1 = gMap.canvasTileArray[q];
+        
+        if(r1.isVisible())
+          ctx.drawImage(r1.cvsHdl, r1.x-gMap.viewRect.x,r1.y-gMap.viewRect.y);
+      }
+    }
+    </script>
+		
+		
+		
+		
+	</head>
+	<h1>Canvas Test - Forward rendering</h1><br />
+	W/S to move, A/D to rotate<br>
+	World is pretty large, you might run for a while...<br>	
+	<hr>
+	<canvas id="cvs" width="1000" height="1000"></canvas>
+	
+	<script>
+		init();
+
+		step();
+	</script>
+</html>

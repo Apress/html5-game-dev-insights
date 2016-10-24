@@ -1,0 +1,8 @@
+#!/bin/bash
+
+emcc \
+  -O3 \
+  -s EXPORTED_FUNCTIONS="['_malloc', '_free', '_crn_get_width', '_crn_get_height', '_crn_get_levels', '_crn_get_dxt_format', '_crn_get_bytes_per_block', '_crn_get_uncompressed_size', '_crn_decompress']" \
+  -I../inc \
+  -o crunch_lib.js \
+  crunch_lib.cpp

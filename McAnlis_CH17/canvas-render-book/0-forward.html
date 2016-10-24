@@ -1,0 +1,69 @@
+<html>
+	<head>
+
+    <script src="coreGame.js"> </script>
+    <script src="TILEDmap.js"> </script>
+	<script>
+		
+
+    //these functions are specific to this approach
+    function onMapDataLoaded()
+    {
+        gMap.fullyLoaded = true;
+    }
+    
+    function onDrawMap(ctx)
+    {
+      //we walk through all the layers
+      for (var layerIdx = 0; layerIdx < gMap.currMapData.layers.length; layerIdx++) 
+      {
+          //is this a tile layer, or an object layer?
+          if (gMap.currMapData.layers[layerIdx].type != "tilelayer") continue;
+
+          var dat = gMap.currMapData.layers[layerIdx].data;
+
+          //find what the tileIndexOffset is for gMap layer
+          for (var tileIDX = 0; tileIDX < dat.length; tileIDX++) 
+          {
+            var tID = dat[tileIDX];
+            //if the value is 0, then there's no tile defined for this slot, skip it!
+            if (tID == 0) 
+              continue;
+
+            //go ahead and fetch the atlas information for this tile
+            var tPKT = gMap.getTilePacket(tID);
+
+            //test if gMap tile is within our world bounds
+            var worldX = Math.floor(tileIDX % gMap.numXTiles) * gMap.tileSize.x;
+            var worldY = Math.floor(tileIDX / gMap.numXTiles) * gMap.tileSize.y;
+            if ((worldX + gMap.tileSize.x) < gMap.viewRect.x || (worldY + gMap.tileSize.y) < gMap.viewRect.y || worldX > gMap.viewRect.x + gMap.viewRect.w || worldY > gMap.viewRect.y + gMap.viewRect.h) continue;
+
+            //adjust all the visible tiles to draw at canvas origin.
+            worldX -= gMap.viewRect.x;
+            worldY -= gMap.viewRect.y;
+
+            // Nine arguments: the element, source (x,y) coordinates, source width and 
+            // height (for cropping), destination (x,y) coordinates, and destination width 
+            // and height (resize).
+            ctx.drawImage(tPKT.img, tPKT.px, tPKT.py, gMap.tileSize.x, gMap.tileSize.y, worldX, worldY, gMap.tileSize.x, gMap.tileSize.y);
+
+          }
+      }
+    }
+    </script>
+		
+
+		
+	</head>
+	<h1>Canvas Test - Forward rendering</h1><br />
+	W/S to move, A/D to rotate<br>
+	World is pretty large, you might run for a while...<br>	
+	<hr>
+	<canvas id="cvs" width="1000" height="1000"></canvas>
+	
+	<script>
+		init();
+
+		step();
+	</script>
+</html>

@@ -1,0 +1,232 @@
+
+
+
+<canvas id="cvs" width="512" height="512"></canvas>
+
+<script>
+
+/*
+In reality, this should come from some sort of .JSON file, or wahtever else you're using to describe your scene.
+But for the sake of this article, let's just define it by hand.
+*/
+var cHullData=[
+{"name":"0.png", "hull":[{"x":0,"y":16}, {"x":1,"y":15}, {"x":31,"y":0}, {"x":34,"y":0}, {"x":64,"y":15}, {"x":65,"y":16}, {"x":65,"y":25}, {"x":64,"y":26}, {"x":34,"y":41}, {"x":31,"y":41}, {"x":1,"y":26}, {"x":0,"y":25}, {"x":0,"y":16}]},
+{"name":"1.png", "hull":[{"x":0,"y":26}, {"x":24,"y":2}, {"x":28,"y":0}, {"x":34,"y":0}, {"x":45,"y":9}, {"x":64,"y":25}, {"x":65,"y":26}, {"x":65,"y":35}, {"x":64,"y":36}, {"x":34,"y":51}, {"x":31,"y":51}, {"x":1,"y":36}, {"x":0,"y":35}, {"x":0,"y":26}]},
+{"name":"2.png", "hull":[{"x":0,"y":19}, {"x":1,"y":18}, {"x":15,"y":7}, {"x":20,"y":4}, {"x":24,"y":2}, {"x":35,"y":0}, {"x":42,"y":4}, {"x":64,"y":18}, {"x":65,"y":19}, {"x":65,"y":28}, {"x":64,"y":29}, {"x":34,"y":44}, {"x":28,"y":45}, {"x":1,"y":29}, {"x":0,"y":28}, {"x":0,"y":19}]},
+{"name":"3.png", "hull":[{"x":2,"y":39}, {"x":11,"y":8}, {"x":12,"y":7}, {"x":24,"y":0}, {"x":30,"y":1}, {"x":44,"y":4}, {"x":48,"y":5}, {"x":56,"y":13}, {"x":67,"y":39}, {"x":67,"y":48}, {"x":66,"y":49}, {"x":36,"y":64}, {"x":33,"y":64}, {"x":3,"y":49}, {"x":2,"y":48}, {"x":2,"y":39}]}
+
+];
+//--------------
+function SpriteProto(){
+	this.filename="";
+	this.imgHandle=null;
+	hullData:null,
+	this.size={w:0,h:0};
+	this.load= function(filename,w,h)
+	{
+		var targetSpriteProto = this;
+		this.size.w = w;
+		this.size.h = h;
+		var img = new Image();
+		img.onload = function(){
+
+			targetSpriteProto.imgHandle = img;
+			for(var u =0; u < cHullData.length; u++)
+			{
+				var thull = cHullData[u];
+				if(thull.name == filename)
+				{
+					targetSpriteProto.hullData = cHullData[u].hull;
+					break;
+				}
+			}
+		}
+		img.src = filename; 
+	};
+	//--------------
+	this.isPixelContained=function(lclx,lcly)
+	{
+		var inPoly = false;
+		var numPoints = this.hullData.length;
+		var j = numPoints-2;
+		var latLng={x:lclx,y:lcly};
+		//from http://www.ecse.rpi.edu/Homepages/wrf/Research/Short_Notes/pnpoly.html
+		for(var i=0; i < numPoints; i++) 
+		{
+		
+			var vertex1 = this.hullData[i];
+			var vertex2 = this.hullData[j];
+
+			if ((vertex1.x < latLng.x && vertex2.x >= latLng.x) || (vertex2.x < latLng.x && vertex1.x >= latLng.x) ) 
+			{
+				if (vertex1.y + (latLng.x - vertex1.x) / (vertex2.x - vertex1.x) * (vertex2.y - vertex1.y) < latLng.y) 
+				{
+					inPoly = !inPoly;
+				}
+			}
+			j=i;
+		}
+		return inPoly;
+		
+	}
+}
+
+//--------------
+function SpriteInstance(){
+	this.id=0;
+	this.zIndex=50;
+	this.pos={x:0,y:0};
+	this.size={w:0,h:0};
+	this.spriteHandle=null;
+}
+
+
+//--------------
+function findClickedSprite(x,y)
+{
+	var pickedSprite = null;
+	var tgtents = spriteInstances;
+	//loop through all sprites 
+	for(var i =0; i < tgtents.length; i++)
+	{
+		var sp = tgtents[i];
+		//pick is not intersecting with this sprite
+		if(	x < sp.pos.x || x > sp.pos.x + sp.size.w ||
+			y < sp.pos.y || y > sp.pos.y + sp.size.h)
+			continue;
+
+		var ps = sp.spriteHandle;
+		
+		pickedSprite = sp;
+		//get local coords and find the alpha of the pixel
+		var lclx = x - sp.pos.x;
+		var lcly = y - sp.pos.y;
+		if(ps.isPixelContained(lclx,lcly))
+		{
+			//do depth test (if applicable)
+			if(pickedSprite && sp.zIndex < pickedSprite.zIndex)
+				continue;
+			pickedSprite = sp;
+		}
+	}
+	
+	
+	
+	if(pickedSprite != null)
+	{
+		var ps = pickedSprite.spriteHandle;
+		ctx.beginPath();
+		ctx.moveTo(pickedSprite.pos.x + ps.hullData[0].x, pickedSprite.pos.y + ps.hullData[0].y);
+		for(var i =1; i < ps.hullData.length;i++)
+			ctx.lineTo(pickedSprite.pos.x + ps.hullData[i].x, pickedSprite.pos.y + ps.hullData[i].y);
+		ctx.strokeStyle = '#FF00FF';
+		ctx.stroke();
+	}
+	
+	
+}
+//--------------
+var protoSprites = new Array();
+var spriteInstances = new Array();
+//--------------
+function loadProtos()
+{
+	//technically, this should be an atlas definition!
+	var imgs=[
+		{nm:"0.png",w:66,h:42},
+		{nm:"1.png",w:66,h:52},
+		{nm:"2.png",w:66,h:46},
+		{nm:"3.png",w:70,h:65}
+		];
+	for(var i =0; i < imgs.length; i++)
+	{
+		var sp = new SpriteProto();
+		sp.load(imgs[i].nm,imgs[i].w,imgs[i].h);
+		protoSprites.push(sp);
+	}
+}
+
+//--------------
+function generateInstances()
+{
+	var numSprites = 4096; //magic number
+	for(var i = 0; i < numSprites; i++)
+	{
+		var sp = new SpriteInstance();
+		sp.id = i;
+		sp.zIndex = i; //just to keep my sanity...
+		sp.pos.x = Math.floor(Math.random() * (500)); //random point on canvas
+		sp.pos.y = Math.floor(Math.random() * (500));
+		var idx = Math.floor(Math.random() * (protoSprites.length));
+		sp.spriteHandle = protoSprites[idx];
+		sp.size = sp.spriteHandle.size;
+		
+		spriteInstances.push(sp);
+	}
+}
+//--------------
+function drawSprites()
+{
+	//note that zindex = i here, so this rendering is correct.
+	for(var i =0; i < spriteInstances.length;i++)
+	{
+		var sp = spriteInstances[i];
+		var ps = sp.spriteHandle;
+		ctx.drawImage(ps.imgHandle,sp.pos.x, sp.pos.y);
+	}
+}
+
+//--------------
+//--------------
+//--------------
+//--------------Initalization section
+//--------------
+//--------------
+//--------------
+//--------------
+
+//--------------
+function mouseClick(e)
+{
+	findClickedSprite(e.offsetX,e.offsetY);
+}
+//--------------
+function checkWait(conditionFunction, resultFunction)
+		{
+			var tev = setInterval(function()
+				{
+					if(conditionFunction())
+					{
+						resultFunction(); 
+						clearInterval(tev)
+					}
+				}, 1000);
+		}
+
+//--------------
+//--------------
+
+var canvas = document.getElementById('cvs');
+var ctx = canvas.getContext('2d');
+canvas.addEventListener("mouseup", mouseClick, false);
+
+//load prototype data
+loadProtos();
+
+//wait for our proto object images to be loaded!
+checkWait( 
+	function(){
+		for(var i =0; i < protoSprites.length; i++)
+			if(protoSprites[i].hullData == null) //let's wait for everything to be processed
+				return false;
+		return true;
+	},
+	function(){
+		//once everything is loaded, lock and load
+		generateInstances();
+		drawSprites();
+		}
+	);
+//--------------
+
+</script>

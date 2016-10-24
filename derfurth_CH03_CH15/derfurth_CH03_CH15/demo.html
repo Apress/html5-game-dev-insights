@@ -1,0 +1,845 @@
+<!doctype html>
+<html>
+<head>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="apple-touch-icon" sizes="152x152" href="ios-hr.png">
+    <link rel="shortcut icon" sizes="196x196" href="android-hr.png">
+
+
+    <meta name="author" content="Florian d'Erfurth">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <style>
+        html, body { margin: 0; overflow: hidden; }
+        canvas {
+            image-rendering: -moz-crisp-edges;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: optimize-contrast;
+        }
+    </style>
+    <script type="text/javascript" src="libs/dat.gui.min.js"></script>
+    <script type="text/javascript" src="libs/doubly-linked-list.js"></script>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<img id="texture-invader" alt="a 10x10 alien" style="display: none" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKAQAAAAClSfIQAAAAJklEQVR4XmPgYWCQY2CwZ2DMFWb8f5BBl4HBoYFBkYGBgYGBgQEAPIADuss3gZMAAAAASUVORK5CYII=" />
+<img id="texture-square"  alt="a 5x5 square"  style="display: none" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFAQAAAAClFBtIAAAAEUlEQVR42mP4wdDBsAKIfwAAElIDqU0atrsAAAAASUVORK5CYII=" />
+
+<script id="vs" type="x-vert-shader">
+    uniform mat4 u_matrix;
+
+    attribute vec3 a_position;
+    attribute vec2 a_texCoord;
+
+    varying vec2 v_texCoord;
+
+    void main() {
+        vec4 pos    = vec4(a_position.x, a_position.y, a_position.z, 1.0);
+        gl_Position = pos * u_matrix;
+        v_texCoord = a_texCoord;
+    }
+    </script>
+
+<script id="fs" type="x-frag-shader">
+    precision mediump float;
+
+    // our texture
+    uniform sampler2D u_image;
+
+    // the texCoords passed in from the vertex shader.
+    varying vec2 v_texCoord;
+
+    void main() {
+       gl_FragColor = texture2D(u_image, v_texCoord);
+    }
+    </script>
+
+<script>
+(function(_global) {
+    "use strict";
+    var demo = {};
+    _global.demo = demo;
+
+    //
+    // Our settings
+    //
+    demo.settings = {
+        rate: 5.0, // number of particles to be spawned each frame
+        render: true,
+        cull: true,
+        size: 20,  // particle size
+        life: 120, // particle life
+        snap_to_grid: false,
+        measure_fps: false,
+        measure_step: false,
+        orientation: '',
+        _recycle: true,
+        _width: window.innerWidth,
+        _height: window.innerHeight,
+        _scaling: 1.0
+    };
+
+    // our getter and setters
+    Object.defineProperties( demo.settings, {
+        width:{
+            get: function(){return this._width},
+            set: function(b){this._width = b; demo.reinit();}
+        },
+        height:{
+            get: function(){return this._height},
+            set: function(b){this._height = b; demo.reinit();}
+        },
+        recycle:{
+            get: function(){return this._recycle},
+            set: function(b){this._recycle = b; demo.reinit();}
+        },
+        scaling:{
+            get: function(){return this._scaling},
+            set: function(b){this._scaling = b; demo.reinit();}
+        }
+    } );
+
+    demo.benchmark = {
+        _fill_canvas: false, // fill screen with a sprite
+
+        fps_history: [], // every 60 RAF, average fps gets pushed here
+        _fps_i: 0,  // RAF count, reset on fps push
+        _fps_t: 0,  // total delta times, reset on fps push
+        fps: 0,     // used to display
+        fps_avg: 0, // used to display
+
+        step_history: [], // every 60 RAF, average step duration gets pushed here
+        _step_i: 0,  // RAF count, reset on step duration push
+        _step_t: 0,  // total step duration, reset on duration push
+        delta: 0,    // used for display
+
+        screen_dimension:       'w:' + screen.width + ' h:' + screen.height,
+        window_inner_dimension: 'w:' + window.innerWidth + ' h:' + window.innerHeight
+    };
+
+    Object.defineProperties( demo.benchmark, {
+        fill_canvas:{
+            get: function(){return this._fill_canvas},
+            set: function(b){
+                this._fill_canvas = b;
+
+                if( b === true )
+                    demo.settings._recycle = false;
+
+                else
+                    demo.settings._recycle = true;
+
+                demo.reinit();
+            }
+        }
+    } );
+
+    //
+    // Fullscreen API
+    //
+    demo.fullscreen = function(){
+
+        // we call fullscreen on the body element in order to keep the GUI visible
+        var body = document.getElementsByTagName('body')[0];
+
+        // try out the different aliases of requestFullscreen
+        [
+            'requestFullscreen',
+            'webkitRequestFullscreen',
+            'mozRequestFullScreen'
+        ].forEach(
+                function(s){
+                    if( body[s] !== undefined ){
+                        body[s]();
+                        demo.settings.width  = screen.width;
+                        demo.settings.height = screen.height;
+                    }
+                }
+        )
+    };
+
+    //
+    // Orientation API
+    //
+    demo.checkOrientation = function(){
+        if( window.orientation === 90 || window.orientation === -90 ){
+            demo.settings.orientation = 'portrait'
+        }
+        else if( window.orientation === 0 || window.orientation === 180 ){
+            demo.settings.orientation = 'landscape'
+        }
+        else{
+            demo.settings.orientation = 'not supported'
+        }
+    };
+
+    demo.checkOrientation();
+
+    // Listen for orientation changes
+    window.addEventListener("orientationchange", function() {
+        demo.checkOrientation();
+    }, false);
+
+
+    //
+    // Resizing
+    //
+    window.addEventListener("resize", function() {
+        demo.benchmark.window_inner_dimension = 'w:' + window.innerWidth + ' h:' + window.innerHeight;
+
+        demo.settings._width  = window.innerWidth;
+        demo.settings.height  = window.innerHeight;
+    }, false);
+
+
+    //
+    // Dat GUI
+    //
+    demo.gui = new dat.GUI();
+    var f1 = demo.gui.addFolder('Particles');
+    f1.add(demo.settings, 'rate').min(1).max(100);
+    f1.add(demo.settings, 'size').min(5).step(5);
+    f1.add(demo.settings, 'life').min(0);
+
+    var f2 = demo.gui.addFolder('Resolution');
+    f2.add(demo.settings, 'width').min(0).step(1).listen();
+    f2.add(demo.settings, 'height').min(0).step(1).listen();
+    f2.add(demo.settings, 'orientation').listen();
+    f2.add(demo.settings, 'scaling', { Full: 1.0, Half: 0.5 });
+    f2.add(demo.settings, 'snap_to_grid');
+
+    var f3 = demo.gui.addFolder('Benchmark');
+    f3.add(demo.settings,  'measure_fps');
+    f3.add(demo.benchmark, 'fps').min(0).max(60).listen();
+    f3.add(demo.benchmark, 'fps_avg').min(0).max(60).listen();
+    f3.add(demo.settings,  'measure_step');
+    f3.add(demo.benchmark, 'delta').min(0).max(100).listen();
+    f3.add(demo.benchmark, 'screen_dimension');
+    f3.add(demo.benchmark, 'window_inner_dimension').listen();
+    f3.add(demo.benchmark, 'fill_canvas');
+
+    demo.gui.add(demo.settings, 'recycle');
+    demo.gui.add(demo.settings, 'cull');
+    demo.gui.add(demo.settings, 'render');
+    demo.gui.add(demo, 'fullscreen');
+
+    //
+    // initializing
+    //
+    demo.init = function(){
+
+        if( demo.settings.recycle ){
+            demo.Particle  = demo.RecyclableParticle;
+            demo.particles = new demo.ParticlePool();
+            demo.step      = demo.recyclingStep;
+        }
+        else {
+            demo.Particle  = demo.NonRecyclableParticle;
+            demo.particles = new Array();
+
+            if(demo.benchmark.fill_canvas === true)
+                demo.step = demo.fillrateBenchStep;
+
+            else
+                demo.step = demo.notRecyclingStep;
+        }
+
+
+    };
+
+    demo.reinit = function(){
+        console.log('reinitializing demo');
+        demo.init();
+        demo.sizeCanvas();
+    };
+
+    //
+    // the loop
+    //
+    var t = window.performance.now();
+    function tick() {
+        // schedule next update
+        requestAnimationFrame( tick );
+
+        // measuring RAF duration
+        var n = window.performance.now(),
+                raf_delta = n - t;
+        t = n;
+
+        if(demo.settings.measure_fps === true){
+            demo.benchmark._fps_i++;
+            demo.benchmark._fps_t += raf_delta;
+
+            // every 60 RAF we compute the average fps and reset our counters
+            if(demo.benchmark._fps_i === 60){
+                var fps = Math.round(1000 / (demo.benchmark._fps_t / demo.benchmark._fps_i));
+                demo.benchmark._fps_i = 0;
+                demo.benchmark._fps_t = 0;
+                demo.benchmark.fps_history.push( fps );
+                demo.benchmark.fps = fps; // shown in GUI
+            }
+
+            // show FPS history in console
+            if(demo.benchmark.fps_history.length > 10){
+
+                var total = 0,
+                    count = 0,
+                    avg   = 0;
+
+                while(count < demo.benchmark.fps_history.length){
+                    total += demo.benchmark.fps_history[count];
+                    count++;
+                }
+
+                avg = total / count;
+                console.log( 'avg FPS for the last 600 frames: ' + avg + 'fps - details: ' + demo.benchmark.fps_history.toString());
+                demo.benchmark.fps_avg = avg;
+                demo.benchmark.fps_history.length = 0;
+            }
+        }
+
+        // move particles around, send data to GPU
+        demo.step( demo.particles );
+
+        // measuring step duration
+        if(demo.settings.measure_step === true){
+            var d = window.performance.now() - t;
+            demo.benchmark._step_i++;
+            demo.benchmark._step_t += d;
+
+            // every 60 RAF we compute the average step duration and reset our counters
+            if(demo.benchmark._step_i === 60){
+                var duration = demo.benchmark._step_t / demo.benchmark._step_i;
+                demo.benchmark._step_i = 0;
+                demo.benchmark._step_t = 0;
+                demo.benchmark.step_history.push( duration );
+                demo.benchmark.delta = duration; // shown in GUI
+
+                // show delta history in console
+                if(demo.benchmark.step_history.length > 10){
+                    console.log( 'step durations over the last 600 frames: ' + demo.benchmark.step_history.toString());
+                    demo.benchmark.step_history.length = 0;
+                }
+            }
+        }
+
+    }
+
+
+    //
+    // Defining Particles
+    //
+
+    // Recyclable particle
+    demo.RecyclableParticle = function(poolindex) {
+        this._poolindex = poolindex; // used by the pool
+        this.allocated  = false;     // used by the pool
+        this.misc = 'somestringthatisnothingmore';
+        this.pos  = {x: 0, y: 0};
+        this.vel  = {x: 0, y: 0};
+        this.acc  = {x: 0, y: 0};
+        this.size = {x: 0, y: 0};
+        this.life = 0;
+    }
+
+    demo.RecyclableParticle.prototype.setup = function(x, y, w, h, life) {
+        this.pos.x  = x;
+        this.pos.y  = y;
+        this.size.x = w;
+        this.size.y = h;
+        this.life   = life;
+        return this;
+    }
+
+    demo.RecyclableParticle.prototype.setVel = function( x, y ){
+        this.vel.x  = x;
+        this.vel.y  = y;
+        return this;
+    }
+
+    demo.RecyclableParticle.prototype.reset = function() {
+        this.setup( 0, 0, 0, 0, 0 );
+        this.setVel( 0, 0 );
+        this.acc.x  = 0;
+        this.acc.y  = 0;
+        return this;
+    };
+
+    // Non recyclable particle
+    demo.NonRecyclableParticle = function(x, y, w, h, life) {
+        this.misc = 'somestringthatisnothingmore';
+        this.pos  = {x: x, y: y};
+        this.vel  = {x: 0, y: 0};
+        this.acc  = {x: 0, y: 0};
+        this.size = {x: w, y: h};
+        this.life = life;
+    }
+
+    demo.NonRecyclableParticle.prototype.setVel = function( x, y ){
+        this.vel.x  = x;
+        this.vel.y  = y;
+        return this;
+    }
+
+    //
+    // Pool of particles
+    //
+    demo.ParticlePool = function(){
+        this.elements = [];     // will be filled with particles
+        this.freeElements = new DoublyLinkedList(); // hold free particles indices see libs\doubly-linked-list.js
+
+        // Fill the pool
+        this.grow();
+    };
+
+    // Grow the pool by a number of particles
+    // called on pool creation and when no free elements remains
+    demo.ParticlePool.prototype.grow = function( growth ){
+        growth = growth || demo.settings.rate * 130;
+
+        var oldsize = this.elements.length, // previous array size
+                newsize = (oldsize + growth + 1) << 0;     // size after growth
+
+        // Resize our elements array
+        this.elements.length = newsize;
+
+        for( var i = oldsize; i < newsize; i++ ){
+
+            // Add a new element to our pool
+            this.elements[i] = new demo.Particle( i );
+
+            // Add its index to the free elements linked-list
+            this.freeElements.add( i );
+        }
+
+        console.log( 'Pool grown from ' + oldsize + ' to ' + newsize + ' particles.' );
+    };
+
+    // Instead of using new Particle() ask the pool for a free particle
+    demo.ParticlePool.prototype.getFree = function(){
+
+        if( this.freeElements.size() === 0 ){
+
+            // no free particles left, grow the pool
+            this.grow()
+        }
+
+        // get and remove head from linked-list freeElements
+        var index = this.freeElements.remove(0);
+
+        // retrieve the particle from the elements array
+        var particle = this.elements[index];
+
+        // mark the particle allocated so we use it when iterating on the pool
+        particle.allocated = true;
+
+        // done
+        return particle;
+    };
+
+    // Free a particle when not used anymore
+    demo.ParticlePool.prototype.free = function( particle ){
+
+        if( particle.allocated === true ){
+
+            // mark the particle as not allocated
+            particle.allocated = false
+
+            // reset particle position, velocity etc.
+            particle.reset();
+
+            // add the particle's index to the free elements array
+            this.freeElements.add( particle._poolindex )
+        }
+    };
+
+
+    //
+    // Our step function called on each RAF
+    //
+
+    // in this step we recycle our particle
+    demo.recyclingStep = function( particles ) {
+
+        var i;
+
+        for (i = 0; i < demo.settings.rate; i++) {
+
+            var min = -10,
+                    max = 10,
+                    velx = min + Math.random() * (max - min),
+                    vely = min + Math.random() * (max - min),
+                    w = demo.settings.size,
+                    h = demo.settings.size,
+                    life = demo.settings.life;
+
+            particles.getFree()
+                    .setup( demo.settings.width * 0.5, demo.settings.height * 0.5, w, h, life )
+                    .setVel( velx, vely );
+        }
+
+        for (i = 0; i < particles.elements.length; i++) {
+
+            var particle = particles.elements[i];
+
+            if( particle.allocated === true ){
+
+                if( particle.life === 0 )
+                    particles.free( particle );
+
+                else if(demo.settings.cull === true && demo.isInBounds(particle) === false)
+                    particles.free( particle );
+
+                else
+                    demo.integrate( particle );
+
+                particle.life--;
+            }
+        }
+
+        if( demo.settings.render === true )
+            demo.draw( demo.particles.elements );
+    };
+
+
+    // in this step we create new particles instead of recycling them
+    demo.notRecyclingStep = function( particles ) {
+
+        var i;
+
+        for (i = 0; i < demo.settings.rate; i++) {
+
+            var min = -10,
+                    max = 10,
+                    velx = min + Math.random() * (max - min),
+                    vely = min + Math.random() * (max - min),
+                    x = demo.settings.width * 0.5,
+                    y = demo.settings.height * 0.5,
+                    w = demo.settings.size,
+                    h = demo.settings.size,
+                    life = demo.settings.life;
+
+            // continuously pushing new objects in an array cause high memory churn and should be avoided
+            particles.push( new demo.Particle( x, y, w, h, life ).setVel( velx, vely ) );
+        }
+
+        for (i = 0; i < particles.length; i++) {
+
+            var particle = particles[i];
+
+            if( particle.life === 0 ){
+                // splicing like pushing should be avoided
+                particles.splice(i, 1);
+                i--;
+            }
+
+            else if(demo.settings.cull === true && demo.isInBounds(particle) === false){
+                // splicing like pushing should be avoided
+                particles.splice(i, 1);
+                i--;
+            }
+
+            else
+                demo.integrate( particle );
+
+            particle.life--;
+        }
+
+        if( demo.settings.render === true )
+            demo.draw( demo.particles );
+    };
+
+
+    // in this step we display a single quad that'll fill the screen
+    demo.fillrateBenchStep = function( particles ) {
+
+        if( demo.particles.length === 0 ){
+            var x = 0,
+                    y = 0,
+                    w = demo.settings.width,
+                    h = demo.settings.height,
+                    life = 0;
+
+            particles.push( new demo.Particle( x, y, w, h, life ) );
+        }
+        else{
+            particles[0].size.x = demo.settings.width;
+            particles[0].size.y = demo.settings.height;
+        }
+
+        if( demo.settings.render === true )
+            demo.draw( demo.particles );
+    };
+
+
+    //
+    // Our physics function
+    //
+    demo.integrate = function( particle ){
+
+        var deltasquare = 0.0256,
+                gravity     = 4;
+
+        // apply gravity
+        particle.acc.y += gravity;
+
+        // update position
+        particle.acc.x *= deltasquare;
+        particle.acc.y *= deltasquare;
+        particle.vel.x += particle.acc.x;
+        particle.vel.y += particle.acc.y;
+        particle.pos.x += particle.vel.x;
+        particle.pos.y += particle.vel.y;
+
+        // reset acceleration
+        particle.acc.x = 0;
+        particle.acc.y = 0;
+    };
+
+    //
+    // Bound check function
+    //
+    demo.isInBounds = function( particle ){
+        var x = particle.pos.x,
+                y = particle.pos.y,
+                w = particle.size.y,
+                h = particle.size.x,
+                areaW = demo.settings.width,
+                areaH = demo.settings.height;
+
+        return !(x > areaW || x + w < 0 || y > areaH || y + h < 0 )
+    };
+
+    //
+    // Setting up WebGL
+    //
+    // Retrieve and setup the canvas we'll be using for rendering
+    demo.canvas = document.getElementById( 'canvas' );
+
+
+    // Retrieve the WebGL context from the canvas
+    var gl = canvas.getContext( 'webgl' ) || canvas.getContext( 'experimental-webgl' );
+
+    // Retrieve our texture image
+    var img = document.getElementById( 'texture-invader');
+
+    // Jump ship if we don't have WebGL
+    if ( !gl )
+        throw "This is not the WebGL context you're looking for";
+
+    // building the shaders
+    var vs = gl.createShader( gl.VERTEX_SHADER );
+    var fs = gl.createShader( gl.FRAGMENT_SHADER );
+    gl.shaderSource( vs, document.getElementById( 'vs' ).textContent );
+    gl.shaderSource( fs, document.getElementById( 'fs' ).textContent );
+    gl.compileShader( vs );
+    gl.compileShader( fs );
+
+    // Check that both shaders compiled correctly
+    if ( !gl.getShaderParameter( vs, gl.COMPILE_STATUS ) )
+        throw gl.getShaderInfoLog( vs );
+
+    if ( !gl.getShaderParameter( fs, gl.COMPILE_STATUS ) )
+        throw gl.getShaderInfoLog( fs );
+
+    // Create a shader program and attach each shader
+    var program = gl.createProgram();
+    gl.attachShader( program, vs );
+    gl.attachShader( program, fs );
+
+    // Link the program
+    gl.linkProgram( program );
+
+    // Check that the program linked correctly
+    if ( !gl.getProgramParameter( program, gl.LINK_STATUS ) )
+        throw gl.getProgramInfoLog( program );
+
+    // Tell WebGL to use the newly created program
+    gl.useProgram( program );
+
+    // Retrieve the attribute locations from the shader program
+    program.a_positionLocation = gl.getAttribLocation( program, 'a_position' );
+    program.a_texCoordLocation = gl.getAttribLocation( program, 'a_texCoord');
+    program.u_matrixLocation   = gl.getUniformLocation( program, 'u_matrix' );
+
+    // Create a texture.
+    var texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+
+    // Set the parameters so we can render any size image.
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+    // Upload the image into the texture.
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+
+    // use Alpha
+    gl.enable( gl.BLEND );
+    gl.blendFunc( gl.ONE, gl.ONE );
+
+    // Create a buffer to hold the geometry and the texture coords
+    var vertexBuffer = gl.createBuffer();
+
+    // Enable buffers as a per-vertex attribute array
+    gl.enableVertexAttribArray( program.a_positionLocation );
+    gl.enableVertexAttribArray( program.a_texCoordLocation );
+
+    // bind the buffer
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+    gl.vertexAttribPointer( program.a_positionLocation, 3, gl.FLOAT, false, 20, 0);
+    gl.vertexAttribPointer( program.a_texCoordLocation, 2, gl.FLOAT, false, 20, 12);
+
+    // Set the clearColor attribute
+    gl.clearColor( 0.1, 0.1, 0.3, 1.0 );
+
+
+    demo.sizeCanvas = function(width, height, scaling){
+
+        if( scaling === undefined ){
+            scaling = demo.settings.scaling;
+        }
+
+        if( width === undefined || height === undefined ){
+            width  = demo.settings.width;
+            height = demo.settings.height;
+        }
+
+        demo.canvas.width  = width  * scaling;
+        demo.canvas.height = height * scaling;
+
+        if( demo.settings.fullscreen === true ){
+            demo.canvas.style.width = '100%';
+        }
+        else{
+            demo.canvas.style.width = width + 'px';
+        }
+
+        // viewport size (same as canvas)
+        gl.viewport( 0, 0, width * scaling, height * scaling );
+
+
+        // we build a matrix for the coordinates looks like canvas 2d
+        //
+        //         x:0, y:0 x---> x:width, y:0
+        //                  |   |
+        //    x:0, y:height v___| x:width, y:height
+        //
+        var viewMatrix = new Float32Array(
+                [2, 0, 0, -1,
+                    0, 2, 0,  1,
+                    0, 0, 1,  0,
+                    0, 0, 0,  1]);
+        viewMatrix[0]  *=  1 / width ;
+        viewMatrix[5]  *= -1 / height;
+        gl.uniformMatrix4fv( program.u_matrixLocation, false, viewMatrix );
+    };
+    demo.sizeCanvas();
+
+
+    //
+    // Our draw function, will be called on RAF
+    //
+    var meshVertices = new Float32Array(500 * 30); // TODO use max elements * 18
+
+    demo.draw = function( particles ){
+
+        // if our array isn't long enough, increase it by 2
+        if( meshVertices.length < particles.length * 30 )
+            meshVertices = new Float32Array(particles.length * 30);
+
+
+        var quads    = 0, // increased by one on each particle
+                quads30  = 0, // increased by thirty
+                snap     = demo.settings.snap_to_grid,
+                half_res = demo.settings._scaling == "0.5";
+
+        for (var i = 0; i < particles.length; i++) {
+
+            var particle = particles[i]
+
+            if( particle.allocated !== false ){
+
+                var quads30i = quads30, // starting position in the array
+                        x  = particle.pos.x,
+                        y  = particle.pos.y,
+                        xx,
+                        yy;
+
+                if(snap == true){
+                    x = Math.round(x);
+                    y = Math.round(y);
+
+                    if(half_res == true){
+                        if(x & 1){ x-- } // x & 1 returns true if x is odd
+                        if(y & 1){ y-- }
+                    }
+                }
+
+                xx = x + particle.size.x;
+                yy = y + particle.size.y;
+
+                meshVertices[quads30i++] = x; // first vertex x
+                meshVertices[quads30i++] = y; // first vertex y
+                meshVertices[quads30i++] = 0; // first vertex z
+                meshVertices[quads30i++] = 0; // first vertex s
+                meshVertices[quads30i++] = 0; // first vertex t
+
+                meshVertices[quads30i++] = xx;
+                meshVertices[quads30i++] = y;
+                meshVertices[quads30i++] = 0;
+                meshVertices[quads30i++] = 1;
+                meshVertices[quads30i++] = 0;
+
+                meshVertices[quads30i++] = x;
+                meshVertices[quads30i++] = yy;
+                meshVertices[quads30i++] = 0;
+                meshVertices[quads30i++] = 0;
+                meshVertices[quads30i++] = 1;
+
+                meshVertices[quads30i++] = x;
+                meshVertices[quads30i++] = yy;
+                meshVertices[quads30i++] = 0;
+                meshVertices[quads30i++] = 0;
+                meshVertices[quads30i++] = 1;
+
+                meshVertices[quads30i++] = xx;
+                meshVertices[quads30i++] = y;
+                meshVertices[quads30i++] = 0;
+                meshVertices[quads30i++] = 1;
+                meshVertices[quads30i++] = 0;
+
+                meshVertices[quads30i++] = xx;
+                meshVertices[quads30i++] = yy;
+                meshVertices[quads30i++] = 0;
+                meshVertices[quads30i++] = 1;
+                meshVertices[quads30i++] = 1;
+
+                quads30 += 30;
+                quads++;
+            }
+        }
+
+        // clear
+        gl.clear( gl.COLOR_BUFFER_BIT );
+
+        // send the vertices
+        gl.bufferData( gl.ARRAY_BUFFER, meshVertices, gl.DYNAMIC_DRAW );
+
+        // draw
+        gl.drawArrays( gl.TRIANGLES, 0, quads * 6 );
+    };
+
+
+    //
+    // Start
+    //
+    demo.init(); // initialize the demo
+    tick();      // our RAF loop
+
+}(this));
+</script>
+</body>
+</html>

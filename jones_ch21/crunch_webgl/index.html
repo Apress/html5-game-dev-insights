@@ -1,0 +1,296 @@
+<!doctype html>
+<!--
+Copyright (c) 2014, Brandon Jones. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+  * Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+  * Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation 
+    and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+-->
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+
+    <title>Texture streaming demo</title>
+
+    <style>
+      head, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      #main-canvas {
+        position: absolute;
+        z-index: 1;
+        top: 0;
+        left: 0;
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      #demo-controls {
+        position: absolute;
+        z-index: 2;
+        top: 10px;
+        left: 10px;
+      }
+
+      #stats {
+        position: absolute;
+        z-index: 2;
+        top: 10px;
+        right: 10px;
+      }
+    </style>
+    
+    <script src="js/gl-matrix-min.js"></script>
+    <script src="js/webgl-util.js"></script>
+    <script src="js/dxt-util.js"></script>
+    <script src="js/stats.min.js"></script>
+
+    <script id="default-vs" type="x-shader/x-vertex">
+      attribute vec3 Position;
+      attribute vec2 TexCoord;
+
+      uniform mat4 projectionMat;
+      uniform mat4 modelViewMat;
+      
+      varying vec2 vTexCoord;
+  
+      void main(void) {
+        vTexCoord = TexCoord;
+        gl_Position = projectionMat * modelViewMat * vec4(Position, 1.0);
+      }
+    </script>
+
+    <script id="default-fs" type="x-shader/x-fragment">
+      precision mediump float;
+      
+      varying vec2 vTexCoord;
+      uniform sampler2D diffuse;
+
+      void main(void) {
+        gl_FragColor = texture2D(diffuse, vTexCoord);
+      }
+    </script>
+  </head>
+  <body>
+    <canvas id="main-canvas"></canvas>
+
+    <div id="demo-controls">
+      <select id="extension">
+        <option value="jpg" selected>JPEG</option>
+        <option value="dds">DDS</option>
+        <option value="crn">CRN</option>
+      </select>
+
+      <select id="crn-worker" style="display: none">
+        <option value="0" selected>Decompress on main thread</option>
+        <option value="1">Decompress in a worker</option>
+      </select>
+    </div>
+
+    <script>
+      var stats = new Stats();
+      document.body.appendChild(stats.domElement);
+
+      var canvas = document.getElementById("main-canvas");
+      var gl = WebGLUtil.getContext(canvas);
+
+      var imageList = [
+        'textures/Slide_1',
+        'textures/Slide_2',
+        'textures/Slide_3',
+        'textures/Slide_4',
+        'textures/Slide_5',
+        'textures/Slide_6',
+        'textures/Slide_7',
+        'textures/Slide_8',
+        'textures/Slide_9',
+        'textures/Slide_10',
+        'textures/Slide_11',
+        'textures/Slide_12',
+        'textures/Slide_13',
+        'textures/Slide_14',
+        'textures/Slide_15',
+        'textures/Slide_16'
+      ];
+
+      var projectionMat = mat4.create();
+      var modelViewMat = mat4.create();
+
+      var dxtLoader = new DXTUtil.Loader(gl, false);
+      var dxtWorkerLoader = new DXTUtil.Loader(gl, true);
+
+      function onResize() {
+        var w = canvas.offsetWidth * devicePixelRatio;
+        var h = canvas.offsetHeight * devicePixelRatio;
+        canvas.width = w;
+        canvas.height = h;
+        gl.viewport(0, 0, w, h);
+        mat4.perspective(projectionMat, 45, w/h, 1.0, 1024.0);
+      }
+      window.addEventListener("resize", onResize, false);
+      onResize();
+
+      var shader = WebGLUtil.createProgramFromTags(gl, "#default-vs", "#default-fs");
+      gl.useProgram(shader.program);
+
+      gl.clearColor(0.0, 0.0, 0.0, 1.0);
+
+      var quadBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+        -1,  1,  0,   0, 0,
+         1,  1,  0,   1, 0,
+         1, -1,  0,   1, 1,
+        -1, -1,  0,   0, 1,
+      ]), gl.STATIC_DRAW);
+
+      gl.enableVertexAttribArray(shader.attribute.Position);
+      gl.enableVertexAttribArray(shader.attribute.TexCoord);
+      gl.vertexAttribPointer(shader.attribute.Position, 3, gl.FLOAT, false, 20, 0);
+      gl.vertexAttribPointer(shader.attribute.TexCoord, 2, gl.FLOAT, false, 20, 12);
+
+      gl.uniform1i(shader.uniform.diffuse, 0);
+
+      var workerSelect = document.getElementById('crn-worker');
+      var extensionSelect = document.getElementById('extension');
+
+      extensionSelect.addEventListener('change', function() {
+        if (extensionSelect.value == 'crn') {
+          workerSelect.style.display = 'inline-block';
+        } else {
+          workerSelect.style.display = 'none';
+        }
+      }, false);
+
+      var nextImageId = 0;
+      function getNextImageUrl() {
+        var imageId = nextImageId % imageList.length;
+        nextImageId++;
+        var ext = extensionSelect.value;
+        return imageList[imageId] + "." + ext + "?ts=" + Date.now();
+      }
+
+      var imageRows = 3;
+      var imageCols = 5;
+      var imageSpace = 2.1;
+      var scrollSpeed = 1.0;
+
+      var rowWidth = imageCols * imageSpace;
+      var rowHalfWidth = rowWidth * 0.5;
+      var rotationFactor = Math.PI / (rowWidth*2.0);
+
+      var GalleryImage = function(gl, row, offset) {
+        this.gl = gl;
+        this.texture = WebGLUtil.createSolidTexture(gl, [255, 255, 255]);
+        this.offset = (offset * -imageSpace) - Math.abs(row * (imageSpace*0.5));
+        this.x = this.offset;
+        this.y = (row-1) * imageSpace;
+        this.z = -5.5;
+
+        this.r = (Math.random() * Math.PI);
+        this.active = false;
+        this.reset();
+      }
+
+      GalleryImage.prototype.reset = function() {
+        var self = this;
+        this.active = false;
+
+        if(self.x >= rowHalfWidth) {
+          self.x -= rowWidth;
+        }
+
+        function textureLoaded(texture, error) {
+          self.active = true;
+        }
+
+        if (extensionSelect.value == "crn") {
+          if (workerSelect.value == "1") {
+            dxtWorkerLoader.loadCRN(getNextImageUrl(), this.texture, textureLoaded);
+          } else {
+            dxtLoader.loadCRN(getNextImageUrl(), this.texture, textureLoaded);
+          }
+        } else if (extensionSelect.value == "dds") {
+          dxtLoader.loadDDS(getNextImageUrl(), this.texture, textureLoaded);
+        } else {
+          WebGLUtil.loadTexture(this.gl, getNextImageUrl(), this.texture, textureLoaded);
+        }
+      }
+
+      GalleryImage.prototype.draw = function(shader, td) {
+        this.x += td * scrollSpeed;
+
+        if (this.x >= rowHalfWidth) {
+          this.reset()
+        }
+
+        if (!this.active) { return; }
+
+        // LERP the rotation between -90deg and 90deg
+        this.r = rotationFactor * this.x;
+
+        mat4.identity(modelViewMat);
+        mat4.translate(modelViewMat, modelViewMat, [this.x, this.y, this.z]);
+        mat4.rotateY(modelViewMat, modelViewMat, this.r);
+        
+        var gl = this.gl;
+        gl.uniformMatrix4fv(shader.uniform.modelViewMat, false, modelViewMat);
+        gl.bindTexture(gl.TEXTURE_2D, this.texture);
+
+        gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
+      }
+
+      var imageCount = imageRows * imageCols;
+      var images = [];
+
+      for (var i = 0; i < imageCount; ++i) {
+        images[i] = new GalleryImage(gl, (i % 3), Math.floor(i / 3));
+      }
+
+      var lts = 0;
+      function drawFrame(ts) {
+        stats.begin();
+
+        if (lts == 0) { lts = ts; }
+        var td = (ts - lts) / 1000.0;
+        lts = ts;
+
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        gl.uniformMatrix4fv(shader.uniform.projectionMat, false, projectionMat);
+
+        for (var i = 0; i < imageCount; ++i) {
+          images[i].draw(shader, td);
+        }
+
+        stats.end();
+
+        requestAnimationFrame(drawFrame);
+      }
+      requestAnimationFrame(drawFrame);
+    </script>
+  </body>
+</html>

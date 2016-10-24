@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Line Intersection Demo - Jon Howard 2013 At by Eloisa 9 and Lola 7</title>	
+		
+		<style>
+			*
+			{
+				-webkit-transform:translate3d(0,0,0); 
+			}
+		</style>
+		<link rel="stylesheet" type="text/css" href="css/game.css" />
+
+		<script src="js/Configuration.js"></script>
+		<!--UTILS-->
+		<script src="js/utils/Rectangle.js"></script>
+		<script src="js/utils/Point.js"></script>
+		<script src="js/utils/Line.js"></script>
+		<script src="js/utils/Edge.js"></script>
+		<script src="js/utils/Intersection.js"></script>
+		<script src="js/utils/Spritesheet.js"></script>
+		<script src="js/utils/UserInput.js"></script>
+		<script src="js/utils/Utils.js"></script>
+		<!--SCENE-->
+		<script src="js/scene/BuildScene.js"></script>
+		<!--ELEMENTS-->
+		<script src="js/elements/ElementFunctions.js"></script>
+		<script src="js/elements/Character.js"></script>
+		<script src="js/elements/DrawDebug.js"></script>
+
+		
+	</head>
+	
+	<body onload=init() >
+	
+	<script>
+
+		var topLayer, gfxLayer, bg, //Layers
+			gfxLayerPosX=0, gfxLayerPosY=0,
+			prevgfxLayerPosX=0, prevgfxLayerPosY=0,
+			bgPosX=0, bgPosY=0,
+			player, wrapper, //Player containers
+			inputDown=false, inputLifted=false,
+			inputX=0, inputY=0,
+			currentX=0,	currentY=0,
+			isInContact = false,
+			controlTouchID=-1,
+			isOnLadder=false,
+			lines=[];
+		
+		var canvas, context, scope=this;
+		
+		var requestAnimationFrame = window.requestAnimationFrame || window.webkitRequestAnimationFrame || window.mozRequestAnimationFrame || function(func){ scope.t_out=setTimeout(func, 1000 / FPS); };
+		var cancelAnimationFrame = window.cancelAnimationFrame || window.webkitCancelAnimationFrame || window.mozCancelAnimationFrame || function(){clearTimeout(scope.t_out)};
+	
+		//init: Initialise layers, set up and debugging.
+		function init() 
+		{
+			
+			//Scroll 1 pixel to force android browser chrome to disappear
+			window.scrollTo(0, 1);
+			
+			//Init layers
+			bg = document.getElementById('viewport');
+			gfxLayer = document.getElementById('gfxLayer');
+			topLayer = document.getElementById('topLayer'); //For HUD
+			
+			gfxLayer.appendChild(getImage("media/hd/background.jpg", 0, 0, 1960,960));
+			
+			setUpLevel();
+
+			initPlayer();
+			
+			
+			if(doDebug && document.addEventListener) //If doDebug true and not IE
+				{//If doDebug - use canas to overdraw the bounding boxes
+					canvas = document.createElement( 'canvas' ),
+					context = canvas.getContext( '2d' ),
+					canvas.width = 2000; 
+					canvas.height = 1000;
+					gfxLayer.appendChild( canvas );
+					drawDebugEdges();
+					drawDebugBoundingBoxes(lines, "rgb(0,255,0)");
+				}
+			
+			//Add wrapper to gfxLayer layer - make sure it is on top
+			gfxLayer.appendChild(wrapper);
+			
+			startGameLoop();
+		}
+
+		//startGameLoop: Kick off the game loop and init listeners
+		function startGameLoop()
+		{
+			scope.requestId=requestAnimationFrame(loop);
+			
+			//IE or standard listeners
+			if(document.addEventListener)initListeners();
+			else initIEListeners();
+		}
+
+		
+		//initPlayer: Build the main character
+		function initPlayer()
+		{
+			var character = document.getElementById('playerAnim');
+			wrapper = createADiv("wrapper", 0, 0);//document.getElementById('wrapper');
+			gfxLayer.appendChild(wrapper);
+			player = new Character(new Point(100, 180), new Point(0,0), 50, 140, new Spritesheet(character,97.5,156, 10, 8, wrapper, -49, -130, 0.3 ));
+			wrapper.appendChild(character);
+			gfxLayer.appendChild(wrapper);
+		}
+		
+		//initListeners: Initialize the listeners for user controls
+		function initListeners()
+		{
+
+				{//These listeners will have no effect on ost devices if they don't work.
+				 //but testing for touchable will cause Android 2.2 to fail
+					document.addEventListener("touchstart", touchStartHandler, true);
+					document.addEventListener("touchmove", touchMoveHandler, true);
+					document.addEventListener("touchend", touchEndHandler, true);
+					document.addEventListener("touchcancel", touchEndHandler, true); 
+					
+					document.addEventListener("gesturestart", gestureHandler, true); 
+					document.addEventListener("gesturechange", gestureHandler, true); 
+					document.addEventListener("gestureend", gestureHandler, true); 
+				}
+
+					
+			var touchable = 'createTouch' in document;
+			if(!touchable)
+				{//iOS seems to react to mouse and touch - so only add these listeners if not touchable
+					document.addEventListener("mousedown", mouseHandler, true);
+					document.addEventListener("mousemove", mouseHandler, true);
+					document.addEventListener("mouseup", mouseHandler, true);
+	
+					document.addEventListener("keydown", onKeyDown, true); 
+					document.addEventListener("keyup", onKeyUp, true); 					
+				}
+		}
+		
+		//initIEListeners: Initialize the IE listeners for user controls
+		function initIEListeners()
+		{
+			document.attachEvent("touchstart", touchStartHandler);
+			document.attachEvent("touchmove", touchMoveHandler);
+			document.attachEvent("touchend", touchEndHandler);
+			document.attachEvent("touchcancel", touchEndHandler); 
+			
+			document.attachEvent("onmousedown", mouseHandler);
+			document.attachEvent("onmousemove", mouseHandler);
+			document.attachEvent("onmouseup", mouseHandler);
+			
+			document.attachEvent("gesturestart", gestureHandler); 
+			document.attachEvent("gesturechange", gestureHandler); 
+			document.attachEvent("gestureend", gestureHandler); 
+			
+			document.attachEvent("onkeydown", onKeyDown); 
+			document.attachEvent("onkeyup", onKeyUp);
+		}
+		
+	    	   	
+		//loop: The main game loop
+		function loop() 
+		{
+			player.displayUpdate();
+			
+			if(inputDown)
+				{//If control type is 'rings' then calc which direction
+					player.velocity.x = 0;
+				}
+				else
+				{
+					if(player.position.x>1900) //Magic numbers here aew quick fix to turn player around
+						{
+							player.position.x=1900;
+							velocityAmt=-velocityAmt;
+							player.displayFaceLeft();
+						}
+					if(player.position.x<10) 
+						{
+							player.position.x=10;
+							velocityAmt=-velocityAmt;
+							player.displayFaceRight();
+						}
+					player.velocity.x = velocityAmt;
+				}
+
+			player.update(lines,[]); //Update the player character
+			
+			renderCharacter();
+			
+			if(doScroll)
+				{//Scroll the gfxLayer in relation to player
+					gfxLayerPosX -= (gfxLayerPosX-(HALF_SCREEN_WIDTH-player.position.x)*0.99);
+					gfxLayerPosY -= ((gfxLayerPosY-(HALF_SCREEN_HEIGHT-player.position.y))*0.1);
+					
+					gfxLayerPosX = Math.min(0, gfxLayerPosX);
+					gfxLayerPosX = Math.max(-1000, gfxLayerPosX);
+					
+					gfxLayerPosY = Math.min(1000, gfxLayerPosY);
+					gfxLayerPosY = Math.max(-450, gfxLayerPosY);
+				}
+
+			//bgPosX-=0.5;//Scroll the background - constant scroll - could relate to user movement too.
+
+			//Set background position
+			//bg.style.backgroundPosition = (bgPosX)+"px "+(bgPosY)+"px";
+
+			//Set gfxLayer layer position
+			if(prevgfxLayerPosX!=gfxLayerPosX) 
+				{
+					gfxLayer.style.left = gfxLayerPosX+"px ";
+					bgPosX+=(gfxLayerPosX-prevgfxLayerPosX)*0.2;
+					prevgfxLayerPosX=gfxLayerPosX;
+				}
+			if(prevgfxLayerPosY!=gfxLayerPosY)
+				{
+					gfxLayer.style.top = gfxLayerPosY+"px ";
+					prevgfxLayerPosY=gfxLayerPosY
+					bgPosY = gfxLayerPosY*0.5
+				}
+
+			//Call next game loop	
+			scope.requestId=requestAnimationFrame(loop);
+
+		}
+		
+		//renderCharacter: Update character animation states and render
+		function renderCharacter()
+		{
+			player.displayRender();
+			
+			if (!inputDown)
+				{
+					player.displayWalkingAnim();
+				}
+				else
+			if (player.contact) 
+				{
+					player.displayStandingAnim();
+				}
+
+			if (isInContact && !player.contact) 
+				{
+					isInContact = false;
+				}
+				else
+			if (!isInContact && player.contact)
+				{
+					isInContact = true;
+				}
+		}
+
+	</script>
+	
+	<div id="debug" style="position:absolute;top:10px"> </div>
+	<div id="viewport">
+		<div id="gfxLayer">
+			<div id="playerAnim"></div>
+		</div>
+		<div id="topLayer"></div>
+	</div>
+
+	
+	</body>
+	
+</html>

@@ -1,0 +1,267 @@
+<html>
+	<head>
+    <script src="coreGame.js"> </script>
+    <script src="TILEDmap.js"> </script>
+	<script>
+	
+
+    //these functions are specific to this approach
+    function CanvasTile(){
+      this.x=0;
+      this.y=0;
+      this.w=100;
+      this.h=100;
+      this.cvsHdl=null;
+      this.ctx=null;
+      this.isFree=true; //is this tile being used currently?
+      this.numFramesNoVisible=0; //how many frames has this NOT been visible?
+      //-----------------------------
+      this.create=function(width,height)
+      {
+        this.x = -1;
+        this.y = -1;
+        this.w = width;
+        this.h = height;
+        var can2 = document.createElement('canvas');
+        can2.width = width;
+        can2.height = height;
+        this.cvsHdl = can2;
+        this.ctx = can2.getContext('2d');
+        this.isFree = true;
+        
+      
+      };
+      //-----------------------------
+      this.update=function()
+      {
+        //if this tile is free, then there's no logic to be done here
+        if(this.isFree) return;
+        
+        
+        //if i'm not visible, age me, and see if we can free me from the cache
+        if(!this.isVisible())
+        {
+          this.numFramesNoVisible++;
+          
+          if(this.numFramesNoVisible > 100)   //promote to freed
+          {
+            this.isFree=true;
+            this.x = -1;
+            this.y = -1;
+          }
+        }
+      };
+      //-----------------------------
+      this.isVisible=function()
+      { 
+        var r2 = gMap.viewRect;
+        var r1 = this;
+        return intersectRect(  {top:r1.y,
+                          left:r1.x,
+                          bottom:r1.y+r1.h,
+                          right:r1.x+r1.w},
+                          {top:r2.y,
+                          left:r2.x,
+                          bottom:r2.y+r2.h,
+                          right:r2.x+r2.w});
+          
+      
+      };
+        //-----------------------------
+      this.doesMatchRect=function(x,y,w,h)
+      {
+        return (this.x == x && this.y ==y && this.w == w && this.h==h);
+      }
+
+     };
+
+     //CLM Add these to our map just for sanity
+    gMap.canvasTileSize={"x":512,"y":512};
+    gMap.canvasTileArray=[];
+    
+    
+
+//------------------------------------
+   function fillCanvasTile(ctile)
+    {
+    var ctx = ctile.ctx;
+    ctx.fillRect(0,0,ctile.w, ctile.h);
+      var vRect={ top:ctile.y,
+            left:ctile.x,
+            bottom:ctile.y+ctile.h,
+            right:ctile.x+ctile.w};
+      
+      for (var layerIdx = 0; layerIdx < gMap.currMapData.layers.length; layerIdx++) 
+      {
+        if (gMap.currMapData.layers[layerIdx].type != "tilelayer") continue;
+
+        var dat = gMap.currMapData.layers[layerIdx].data;
+        //find what the tileIndexOffset is for gMap layer
+        for (var tileIDX = 0; tileIDX < dat.length; tileIDX++) {
+        var tID = dat[tileIDX];
+        if (tID == 0) continue;
+
+        var tPKT = gMap.getTilePacket(tID);
+
+        //test if gMap tile is within our world bounds
+        var worldX = Math.floor(tileIDX % gMap.numXTiles) * gMap.tileSize.x;
+        var worldY = Math.floor(tileIDX / gMap.numXTiles) * gMap.tileSize.y;
+
+        var visible= intersectRect(  vRect,
+                      {top:worldY,left:worldX,bottom:worldY + gMap.tileSize.y,right:worldX + gMap.tileSize.x});
+        if(!visible)  
+          continue;
+          
+        // Nine arguments: the element, source (x,y) coordinates, source width and 
+        // height (for cropping), destination (x,y) coordinates, and destination width 
+        // and height (resize).
+    //    ctx.fillRect(worldX,worldY,gMap.tileSize.x, gMap.tileSize.y);
+        
+        ctx.drawImage(tPKT.img,
+                tPKT.px, tPKT.py, 
+                gMap.tileSize.x, gMap.tileSize.y, 
+                worldX - vRect.left, 
+                worldY - vRect.top, 
+                gMap.tileSize.x, gMap.tileSize.y);
+        
+        
+
+        }
+      }
+    }
+    function fetchFreeCanvas()
+    {
+      //do we have a free canvas?
+      for(var i =0; i < gMap.canvasTileArray.length; i++)
+      {
+
+        if(gMap.canvasTileArray[i].isFree)
+        {
+          //yay, we found a free canvas, grab it and return!
+          gMap.canvasTileArray[i].isFree = false;
+          return gMap.canvasTileArray[i];
+        }
+      }
+
+      
+      //no free canvas yet, find one of the used canvases..
+      //pick the one with the higest number of frames not visible!
+      var oldest = 0;
+      var winner = null;
+      for(var i =0; i < gMap.canvasTileArray.length; i++)
+      {
+        //if(gMap.canvasTileArray[i].isFree) continue; //skip over free
+
+        if(gMap.canvasTileArray[i].numFramesNoVisible > oldest)
+        {
+          oldest = gMap.canvasTileArray[i].numFramesNoVisible;
+          winner = gMap.canvasTileArray[i];
+        }
+        
+      }
+      winner.isFree = false;
+      return winner;
+    }
+    //---------------------------
+
+
+    function onMapDataLoaded()
+    {
+      //preallocate a small pool of canvases to use
+      numCanvases=30;
+      for(var i =0; i < numCanvases; i++)
+      {
+        var k = new CanvasTile();
+        k.create(gMap.canvasTileSize.x,gMap.canvasTileSize.y);
+        gMap.canvasTileArray.push(k);
+      }
+
+        gMap.fullyLoaded = true;
+        
+    }
+    
+    function onDrawMap(ctx)
+    {
+      //do an update of our canvas arrays
+  for(var i =0; i < gMap.canvasTileArray.length; i++)
+    gMap.canvasTileArray[i].update();
+  
+  //determine what canvasTilings would be visible here, expand our view rect to smooth tiling artifacts..
+  
+  var xTileMin = Math.floor((gMap.viewRect.x) / gMap.canvasTileSize.x);
+  var xTileMax = Math.floor((gMap.viewRect.x+gMap.viewRect.w) / gMap.canvasTileSize.x);
+  var yTileMin = Math.floor((gMap.viewRect.y) / gMap.canvasTileSize.y);
+  var yTileMax = Math.floor((gMap.viewRect.y+gMap.viewRect.h) / gMap.canvasTileSize.y);
+  
+  if(xTileMin <0) xTileMin=0;
+  if(yTileMin <0) yTileMin=0;
+  //walk through each of cache tiles that should be visible, determine if that tile exists in the cache
+  var visibles=[];
+  for(var yC = yTileMin; yC <=yTileMax; yC ++)
+  {
+    for(var xC = xTileMin; xC <=xTileMax; xC ++)
+    {
+      var rk = {
+          x:xC * gMap.canvasTileSize.x,
+          y:yC * gMap.canvasTileSize.y,
+          w:gMap.canvasTileSize.x,
+          h:gMap.canvasTileSize.y
+          };
+      
+      var found = false;
+      for(var i =0; i < gMap.canvasTileArray.length; i++)
+      {
+        if(gMap.canvasTileArray[i].doesMatchRect(rk.x,rk.y,rk.w,rk.h))
+        {
+          found = true;
+          visibles.push(gMap.canvasTileArray[i]);
+        }
+      }
+      
+      if(found) continue;
+      
+      //woah! we didn't find a tile for this slot, go ahead and create one
+      var cv = fetchFreeCanvas();
+      cv.x = rk.x;
+      cv.y = rk.y;
+      fillCanvasTile(cv);
+      visibles.push(cv);
+    }
+  }
+  
+  
+  
+    //for each tile, go ahead and render the damn thing
+    var r2 = gMap.viewRect;
+
+    //aabb test to see if our view-rect intersects with this canvas.
+    for(var q =0; q < visibles.length; q++)
+    {
+      var r1 = visibles[q];
+      //operation of redundancy deperatment of redundancy
+      var visible= intersectRect(  {top:r1.y,left:r1.x,bottom:r1.y+r1.h,right:r2.x+r2.w},
+                        {top:r2.y,left:r2.x,bottom:r2.y+r2.h,right:r2.x+r2.w});
+      
+      if(visible)
+        ctx.drawImage(r1.cvsHdl, r1.x-gMap.viewRect.x,r1.y-gMap.viewRect.y);
+    }
+    
+    }
+    </script>
+		
+		
+		
+		
+	</head>
+	<h1>Canvas Test - Forward rendering</h1><br />
+	W/S to move, A/D to rotate<br>
+	World is pretty large, you might run for a while...<br>	
+	<hr>
+	<canvas id="cvs" width="1000" height="1000"></canvas>
+	
+	<script>
+		init();
+
+		step();
+	</script>
+</html>

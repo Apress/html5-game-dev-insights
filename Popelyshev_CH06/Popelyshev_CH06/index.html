@@ -1,0 +1,84 @@
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0"/>
+	<link href="css/start/jquery-ui-1.10.3.custom.css" rel="stylesheet">
+	<script src="lib/jquery-1.10.2.min.js"></script>
+	<script src="lib/jquery-ui-1.10.3.custom.min.js"></script>
+	<!-- GAME -->
+	<script src="core/tilelist.js"></script>
+	<script src="core/tileeventlist.js"></script>
+	<script src="core/map.js"></script>
+	<script src="core/sprite.js"></script>
+	<script src="core/editor.js"></script>
+	<script src="core/renderer.js"></script>
+	<script src="core/binder.js"></script>
+	<!-- MODS -->
+	<script src="mods/mod-shadows.js"></script>
+	<script src="mods/mod-abyss.js"></script>
+	<script src="mods/mod-surface.js"></script>
+	<!-- CONFIGURATION -->
+	<script src="cfg/basic.js"></script>
+	<script src="cfg/shadows.js"></script>
+	<script src="cfg/abyss.js"></script>
+	<script src="cfg/surface.js"></script>
+	<!-- UI -->	
+	<script src="core/builder.js"></script>
+	<script src="core/main.js"></script>
+	<!-- Application -->	
+	<script src="core/app.js"></script>
+	<script>
+$(function() {
+	initUI();
+	window.app = new App([BasicConfig, ShadowConfig, /*AbyssConfig, /*SurfaceConfig*/]);
+});
+
+function initUI() {		
+	$( "#action-zoom" ).button({
+	  icons: {
+		primary: "ui-icon-zoomin"
+	  }
+	}).click(function(){
+		if (app.camera.scale == 1.0)
+			app.camera.scale = 1.5;
+		else app.camera.scale = 1.0;
+		app.redraw();
+		return false;
+	});
+	
+	$( "#tool-cursor" ).click(function() {
+		app.main.tool = 0;return false;
+	}).next().next().click(function() {
+		app.main.tool = 1;return false;
+	}).parent().buttonset();
+
+	$("#builder-dialog").dialog({dialogClass: "build_dialog", width:320, height:300, minWidth:240, minHeight: 200, position: [20, 60], resize: function() { app.builder.redraw(); }});
+}
+</script>
+<style>
+  #toolbar { padding: 4px; display: inline-block;position: absolute; left: 20px; top: 20px; }
+  body {
+		font-family: "Trebuchet MS", "Helvetica", "Arial",  "Verdana", "sans-serif";
+		font-size: 62.5%;
+	}
+  #builder { }
+  .build_dialog .ui-dialog-content { padding: 0; overflow: hidden }
+  .build_dialog .ui-dialog-titlebar-close { display:none }
+</style>
+</head>
+<body>
+<canvas id="screen" border="0"></canvas>
+<div id="toolbar" class="ui-widget-header ui-corner-all">
+  <span id="tool">
+    <input type="radio" id="tool-cursor" name="tool" checked="checked" /><label for="tool-cursor">Cursor</label>
+    <input type="radio" id="tool-brush" name="tool" /><label for="tool-brush">Brush</label>
+  </span>
+  <button id="action-zoom">Zoom</button>
+</div>
+
+<div id="builder-dialog" title="Select a tile">
+  <canvas id="builder"></canvas>
+</div>
+</body>
+
+</html>
